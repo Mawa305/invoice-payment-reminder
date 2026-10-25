@@ -1,0 +1,189 @@
+{
+  "name": "Invoice Payment Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1c51ac44-f060-4276-b205-b23dc611413d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "unpaid"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "fe23a9be-2673-4bfc-981b-6dab97bf3f0b",
+      "name": "Get Unpaid Invoices",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const invoice = item.json;\n  const due = new Date(invoice.due_date);\n  due.setHours(0, 0, 0, 0);\n\n  const daysLeft = Math.round((due - today) / (1000 * 60 * 60 * 24));\n\n  let stage = 'skip';\n  if (daysLeft < 0) {\n    stage = 'overdue';\n  } else if (daysLeft <= 3) {\n    stage = 'upcoming';\n  }\n\n  if (stage !== 'skip' && invoice.last_reminder_stage !== stage) {\n    results.push({ json: { ...invoice, days_left: daysLeft, reminder_stage: stage } });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "504dd3b7-a410-46c0-b087-4e2085f102b1",
+      "name": "Decide Reminder Stage"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customer_email }}",
+        "subject": "={{ $json.reminder_stage === 'overdue' ? 'Payment overdue: Invoice reminder' : 'Upcoming payment reminder' }}",
+        "emailType": "text",
+        "message": "={{ 'Hi ' + $json.customer_name + ', ' + ($json.reminder_stage === 'overdue' ? 'your invoice of ' + $json.amount + ' was due on ' + $json.due_date + '. Please make the payment at your earliest convenience.' : 'this is a friendly reminder that your invoice of ' + $json.amount + ' is due on ' + $json.due_date + '.') + ' Thank you.' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "22fac0b2-00a8-43d0-842f-d1dafe9478b0",
+      "name": "Send Reminder",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Decide Reminder Stage').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "last_reminder_stage",
+              "fieldValue": "={{ $('Decide Reminder Stage').item.json.reminder_stage }}"
+            },
+            {
+              "fieldId": "last_reminder_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "eadf8f3d-4e21-4086-8f42-921e6d0eafc8",
+      "name": "Mark Reminder Sent",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Unpaid Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Unpaid Invoices": {
+      "main": [
+        [
+          {
+            "node": "Decide Reminder Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Reminder Stage": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Karachi"
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}
